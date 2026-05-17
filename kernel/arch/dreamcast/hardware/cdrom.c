@@ -85,22 +85,11 @@ int cdrom_set_sector_size(int size) {
 }
 
 static int cdrom_poll(void *d, uint32_t timeout, int (*cb)(void *)) {
-    uint64_t start_time;
     int ret;
 
-    if(timeout)
-        start_time = timer_ms_gettime64();
+    ret = thd_poll(cb, d, timeout);
 
-    do {
-        ret = (*cb)(d);
-        if(ret)
-            return ret;
-
-        if(!irq_inside_int())
-            thd_pass();
-    } while(!timeout || (timer_ms_gettime64() - start_time) < timeout);
-
-    return ERR_TIMEOUT;
+    return ret == 0 ? ERR_TIMEOUT : ret;
 }
 
 static gdc_cmd_hnd_t cdrom_submit_cmd(void *d) {
@@ -141,10 +130,6 @@ static int cdrom_check_cmd_done(void *d) {
         return ERR_SYS;
 
     return cmd_response != CD_CMD_BUSY && cmd_response != CD_CMD_PROCESSING;
-}
-
-static int cdrom_check_drive_ready(cd_check_drive_status_t *d) {
-    return (syscall_gdrom_check_drive(d) != CD_CMD_BUSY);
 }
 
 static int cdrom_check_abort_done(void *d) {
@@ -265,7 +250,7 @@ int cdrom_abort_cmd(uint32_t timeout, bool abort_dma) {
 
 /* Return the status of the drive as two integers (see constants) */
 int cdrom_get_status(int *status, int *disc_type) {
-    uint32_t params[2] = {0};
+    cd_check_drive_status_t stat;
     int rv;
 
     /* We might be called in an interrupt to check for ISO cache
@@ -275,7 +260,7 @@ int cdrom_get_status(int *status, int *disc_type) {
         /* DH: Figure out a better return to signal error */
         return -1;
 
-    rv = cdrom_poll(params, 0, (int (*)(void *))cdrom_check_drive_ready);
+    rv = syscall_gdrom_check_drive(&stat);
 
     sem_signal(&_g1_ata_sem);
 
@@ -283,10 +268,10 @@ int cdrom_get_status(int *status, int *disc_type) {
         rv = ERR_OK;
 
         if(status != NULL)
-            *status = params[0];
+            *status = stat.status;
 
         if(disc_type != NULL)
-            *disc_type = params[1];
+            *disc_type = stat.disc_type;
     }
     else {
         if(status != NULL)
@@ -557,7 +542,7 @@ int cdrom_stream_request(void *buffer, size_t size, bool block) {
     }
 
     params.size = size;
-    sem_wait_scoped(&_g1_ata_sem);
+    sem_wait(&_g1_ata_sem);
 
     if(stream_dma) {
         dma_in_progress = true;
@@ -570,6 +555,7 @@ int cdrom_stream_request(void *buffer, size_t size, bool block) {
             dma_in_progress = false;
             dma_blocking = false;
             dma_auto_unlock = false;
+            sem_signal(&_g1_ata_sem);
             return ERR_SYS;
         }
         if(!block) {
@@ -579,8 +565,10 @@ int cdrom_stream_request(void *buffer, size_t size, bool block) {
     }
     else {
         rs = syscall_gdrom_pio_transfer(cmd_hnd, &params);
-        if(rs < 0)
+        if(rs < 0) {
+            sem_signal(&_g1_ata_sem);
             return ERR_SYS;
+        }
     }
 
     data = (struct cmd_transfer_data){ cmd_hnd, 0 };
@@ -595,6 +583,7 @@ int cdrom_stream_request(void *buffer, size_t size, bool block) {
             stream_cb(stream_cb_param);
     }
 
+    sem_signal(&_g1_ata_sem);
     return ERR_OK;
 }
 

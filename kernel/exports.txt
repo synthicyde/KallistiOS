@@ -189,12 +189,10 @@ dbgio_enable
 dbgio_disable
 dbgio_dev_select
 dbgio_dev_get
-dbgio_write
 dbgio_flush
 dbgio_write_buffer
 dbgio_write_buffer_xlat
 dbgio_write_str
-dbgio_read
 dbgio_read_buffer
 dbgio_printf
 
@@ -210,10 +208,6 @@ irq_get_global_handler
 irq_set_context
 irq_get_context
 
-# Kernel image replacement
-arch_exec_at
-arch_exec
-
 # Misc other kernel control
 arch_exit
 arch_abort
@@ -228,6 +222,7 @@ rtc_boot_time
 # Stack tracing
 arch_stk_trace
 arch_stk_trace_at
+arch_stk_unwind_step
 
 # Timers
 timer_ms_gettime

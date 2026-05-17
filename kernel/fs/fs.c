@@ -39,7 +39,6 @@ something like this:
 #include <kos/thread.h>
 #include <kos/mutex.h>
 #include <kos/nmmgr.h>
-#include <kos/dbgio.h>
 #include <kos/dbglog.h>
 
 /* File handle structure; this is an entirely internal structure so it does
@@ -69,7 +68,7 @@ static dirent_t *fs_root_readdir(fs_hnd_t *handle) {
 
     nmhead = nmmgr_get_list();
 
-    LIST_FOREACH(nmhnd, nmhead, list_ent) {
+    SLIST_FOREACH(nmhnd, nmhead, list_ent) {
         if((nmhnd->flags & NMMGR_FLAGS_INDEV))
             continue;
 
@@ -195,7 +194,7 @@ static int fs_hnd_assign(fs_hnd_t *hnd) {
 
     fs_hnd_ref(hnd);
 
-    for(i = 0; i < FD_SETSIZE; i++) {
+    for(i = 3; i < FD_SETSIZE; i++) {
         fs_hnd_t *old = NULL;
 
         if(atomic_compare_exchange_strong(&fd_table[i], &old, hnd))
@@ -310,6 +309,9 @@ file_t fs_dup2(file_t oldfd, file_t newfd) {
         return -1;
     }
 
+    if(oldfd == newfd)
+        goto out_get_ref;
+
     do {
         prev = fd_table[newfd];
         if(prev) {
@@ -320,6 +322,7 @@ file_t fs_dup2(file_t oldfd, file_t newfd) {
     } while(!atomic_compare_exchange_strong(&fd_table[newfd],
                                             &prev, fd_table[oldfd]));
 
+out_get_ref:
     fs_hnd_ref(fd_table[newfd]);
 
     return newfd;
@@ -815,15 +818,8 @@ int fs_readlink(const char *path, char *buf, size_t bufsize) {
     vfs_handler_t *vfs;
     char fullpath[PATH_MAX];
 
-    /* Prepend the current working directory if we have to. */
-    if(path[0] == '/') {
-        strcpy(fullpath, path);
-    }
-    else {
-        strcpy(fullpath, fs_getwd());
-        strcat(fullpath, "/");
-        strcat(fullpath, path);
-    }
+    if(!fs_normalize_path(path, fullpath))
+        return -1;
 
     /* Look for the handler */
     vfs = fs_verify_handler(fullpath);
@@ -857,15 +853,8 @@ int fs_stat(const char *path, struct stat *buf, int flag) {
         return -1;
     }
 
-    /* Prepend the current working directory if we have to. */
-    if(path[0] == '/') {
-        strcpy(fullpath, path);
-    }
-    else {
-        strcpy(fullpath, fs_getwd());
-        strcat(fullpath, "/");
-        strcat(fullpath, path);
-    }
+    if(!fs_normalize_path(path, fullpath))
+        return -1;
 
     /* Look for the handler */
     vfs = fs_verify_handler(fullpath);
@@ -878,6 +867,13 @@ int fs_stat(const char *path, struct stat *buf, int flag) {
     if(vfs->stat) {
         return vfs->stat(vfs, fullpath + strlen(vfs->nmmgr.pathname), buf,
                          flag);
+    }
+    else if(!strcmp(path, vfs->nmmgr.pathname)) {
+        /* no vfs->stat - handle stat() on the mount folder */
+        *buf = (struct stat){
+            .st_mode = S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO,
+        };
+        return 0;
     }
     else {
         errno = ENOSYS;

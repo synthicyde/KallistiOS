@@ -9,7 +9,7 @@
 
 #include <arch/dmac.h>
 #include <arch/timer.h>
-#include <arch/irq.h>
+#include <kos/irq.h>
 #include <dc/pvr.h>
 #include <kos/genwait.h>
 
@@ -93,7 +93,7 @@ do_dma_transfer(unsigned int test, pvr_ptr_t vram1, pvr_ptr_t vram2)
     }
 
     while ((volatile uint64_t)after == 0)
-        genwait_wait(&after, "IRQ wait", 0, NULL);
+        genwait_wait(&after, "IRQ wait", 0);
 
     return after - before;
 }

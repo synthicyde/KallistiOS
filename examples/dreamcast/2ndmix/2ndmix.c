@@ -221,7 +221,7 @@ void draw_cube(int which) {
     float x, y, z, tx, ty, tz;
     float xt, yt;
     float xtrans, ytrans, ztrans;
-    float a, r, g, b;
+    float a = 0.0f, r = 0.0f, g = 0.0f, b = 0.0f;
     pvr_vertex_t vert;
 
     cp = 0;
@@ -794,7 +794,6 @@ void font_init(void) {
 int framecnt = 0;
 void draw_one_frame(void) {
     /* Begin opaque polygons */
-    pvr_wait_ready();
     pvr_scene_begin();
     pvr_list_begin(PVR_LIST_OP_POLY);
 
